@@ -71,7 +71,7 @@ def train(config):
 
 config = {
   'frac_train': 0.4,
-  'frac_mislabeled' : 0.0,
+  'frac_mislabeled' : 0.1,
   'p': 96,
   'transformer_config': {
     'pre_norm': True,

@@ -39,19 +39,20 @@ class AbstractDataset(abc.ABC):
     def fetch_random(self, idx):
         return self.mislabeling[idx]
     
-    def fetch_example(self, idx):
+    def fetch_example(self, idx, mislabel=False):
         a = self.ordered_group_elements1[idx // len(self.group_elements2)]
         b = self.ordered_group_elements2[idx % len(self.group_elements2)]
-        c = self.fetch_output(a, b)
+        if mislabel:
+            c = self.mislabeling[idx]
+        else:
+            c = self.fetch_output(a, b)
         equation = self.form_equation(a, b, c)
         return self.encode(equation[:-1]), (self.vocab2idx[c]-2), equation
     
     def fetch_train_example(self):
         i = random.choice(range(len(self.train_pairs)))
         idx = self.train_pairs[i]
-        if i < self.n_mislabeled:
-            return self.fetch_random(idx)
-        return self.fetch_example(idx)
+        return self.fetch_example(idx, mislabel=i < self.n_mislabeled)
 
     def fetch_val_example(self):
         idx = random.choice(self.val_pairs)
