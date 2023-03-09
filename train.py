@@ -1,3 +1,4 @@
+import json
 import torch
 import datasets
 import models
@@ -12,7 +13,6 @@ from utils import combine_logs
 class GroupDataset(IterableDataset):
     def __init__(self, dataset: AbstractDataset, split: str):
         super(GroupDataset, self).__init__()
-        assert split in {'train', 'val'}
         self.dataset = dataset
         self.split = split
         self.fetch_f = None
@@ -20,8 +20,8 @@ class GroupDataset(IterableDataset):
             self.fetch_f = self.dataset.fetch_train_example
         elif self.split == 'val':
             self.fetch_f = self.dataset.fetch_val_example
-        else:
-            raise NotImplementedError
+        elif self.split == "ground_truth":
+            self.fetch_f = self.dataset.fetch_ground_truth_example
 
     def __iter__(self):
         return self
@@ -30,6 +30,8 @@ class GroupDataset(IterableDataset):
         x, y, _ = self.fetch_f()
         return torch.tensor(x), torch.tensor(y)
 
+l_logs = []
+
 def train(config):
     print('using config:', config)
     
@@ -37,10 +39,12 @@ def train(config):
     dataset = getattr(datasets,config['dataset'])(config["p"], config["frac_train"], config["frac_mislabeled"])
     train_data = GroupDataset(dataset, 'train')
     val_data = GroupDataset(dataset, 'val')
+    ground_truth_data = GroupDataset(dataset, 'ground_truth')
     model = getattr(models, config['model'])(config["transformer_config"], dataset.n_vocab, dataset.n_out, device)
     model.train()
     train_dataloader = DataLoader(train_data, num_workers=config['num_workers'], batch_size=config['bsize'])
     val_dataloader = DataLoader(val_data, num_workers=config['num_workers'], batch_size=config['bsize'])
+    ground_truth_dataloader = DataLoader(ground_truth_data, num_workers=config['num_workers'], batch_size=config['bsize'])
     optim = torch.optim.AdamW(model.parameters(), lr=config['lr'], 
                               weight_decay=config['weight_decay'], 
                               betas=config['betas'])
@@ -61,12 +65,21 @@ def train(config):
                         break
                     _, val_logs = model.get_loss(val_x.to(device), val_y.to(device))
                     all_val_logs.append(val_logs)
-            out_log = {'val': combine_logs(all_val_logs), 'train': combine_logs([logs]), 'step': (step+1), 
+                all_gt_logs = []
+                for i, (gt_x, gt_y) in tqdm(enumerate(ground_truth_dataloader)):
+                    if i >= config['eval_batches']:
+                        break
+                    _, gt_logs = model.get_loss(gt_x.to(device), gt_y.to(device))
+                    all_gt_logs.append(gt_logs)
+            out_log = {'val': combine_logs(all_val_logs), "ground_truth": combine_logs(all_gt_logs), 'train': combine_logs([logs]), 'step': (step+1), 
                        'lr': float(lr_schedule.get_last_lr()[0])}
-            print(out_log)
+            print(step, out_log)
             model.train()
+            l_logs.append(out_log)
         step += 1
         if config['max_steps'] is not None and step >= config['max_steps']:
+            with open("data.json", "w+") as f:
+                json.dump(l_logs, f)
             break
 
 config = {
@@ -92,7 +105,7 @@ config = {
   'warmup_steps': 10,
   'eval_every': 10,
   'eval_batches': 8,
-  'max_steps': 1e6,
+  'max_steps': 1e4,
   'dataset' : "ModSumDataset",
   "model" : "GrokkModel"
 }

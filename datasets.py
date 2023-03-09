@@ -53,6 +53,11 @@ class AbstractDataset(abc.ABC):
         i = random.choice(range(len(self.train_pairs)))
         idx = self.train_pairs[i]
         return self.fetch_example(idx, mislabel=i < self.n_mislabeled)
+    
+    def fetch_ground_truth_example(self):
+        i = random.choice(range(self.n_mislabeled))
+        idx = self.train_pairs[i]
+        return self.fetch_example(idx, mislabel= False)
 
     def fetch_val_example(self):
         idx = random.choice(self.val_pairs)
